@@ -4,6 +4,13 @@ import numpy as np
 from route import Route
 
 
+def compute_weight(coord1, coord2):
+    coord1 = np.array(coord1)
+    coord2 = np.array(coord2)
+    l2_norm = np.linalg.norm(coord1 - coord2)
+    weight = int(np.round(l2_norm))
+    return weight
+
 def generate_initial_graph(n_cities : int, positions : np.array) -> nx.Graph:
 
 	"""
@@ -13,13 +20,15 @@ def generate_initial_graph(n_cities : int, positions : np.array) -> nx.Graph:
 	"""
 
 	initial_graph = nx.complete_graph(n_cities)
+	initial_graph = nx.relabel_nodes(initial_graph, lambda x : str(x))
 	for c in range(n_cities):
 		for i in range(c + 1, n_cities):
-			initial_graph[c][i]['weight'] = int(np.linalg.norm(positions[c] - positions[i]))
+			initial_graph[str(c)][str(i)]['weight'] = int(np.linalg.norm(positions[c] - positions[i]))
+		initial_graph.nodes[str(c)]['pos'] = positions[c]
 	return initial_graph
 
 
-def draw_graph(initial_graph : nx.Graph, positions : np.array, use_pos=True) -> None:
+def draw_graph(initial_graph : nx.Graph, use_pos=True) -> None:
 
 	"""
 
@@ -29,6 +38,7 @@ def draw_graph(initial_graph : nx.Graph, positions : np.array, use_pos=True) -> 
 
 	plt.figure(figsize=(6, 6))
 	if use_pos:
+		positions = nx.get_node_attributes(initial_graph, 'pos')
 		nx.draw_networkx_nodes(initial_graph, positions)
 		nx.draw_networkx_labels(initial_graph, positions, font_color='white')
 		nx.draw_networkx_edges(initial_graph, positions)
@@ -56,7 +66,6 @@ def is_feasible(route : list[nx.Graph], radius : int) -> bool:
 def backtracking(
 		route : list[nx.Graph],
 		initial_graph : nx.Graph,
-		positions : np.array,
 		cover_LB : dict,
 		cover_UB : dict,
 		radius : int,
@@ -73,11 +82,12 @@ def backtracking(
 
 
 def nearest_neighbor_candidate(
-		route : list[nx.Graph],
-		positions : list,
+		initial_graph : nx.Graph,
+		routes : list[Route],
+		candidates : list[str],
 		cover_LB : dict,
 		cover_UB : dict,
-		radius : int) -> int:
+		k : int) -> str:
 
 	"""
 
@@ -85,98 +95,70 @@ def nearest_neighbor_candidate(
 
 	"""
 
-	raise NotImplementedError
-	# return node
+	vehicle = 'k0'
+	curr_obj = routes[0].obj
+	for k_i in range(1, k):
+		if routes[k_i].obj < curr_obj:
+			vehicle = routes[k_i].vehicle_id
+			curr_obj = routes[k_i].obj
+
+	last_city = routes[int(vehicle[1:])].trajectory[-1]
+
+	max_dist = 2**31 - 1
+	contender = '0'
+	for c in candidates:
+		c_dist = compute_weight(initial_graph.nodes[last_city]['pos'], initial_graph.nodes[c]['pos'])
+		if c_dist < max_dist:
+			contender = c
+
+	return contender
 
 
-def generate_solution(G : nx.Graph, positions : list,
+def generate_solution(initial_graph : nx.Graph,
 					  cover_LB : dict,
 					  cover_UB : dict,
-					  k : int) -> list[nx.Graph]:
+					  k : int) -> list[Route]:
 	
 	"""
 
-	Generate a solution thru first found solution in a backtracking search
+	Generate a solution through first found solution in a backtracking search
 
 	"""
 
 	# Generate a solution through first found backtracking search
-	n = G.number_of_nodes()
-
-	# solution variables
-	obj = 0
-
-	# create tree structure
-	tree = nx.DiGraph()
-	tree.add_node(0, label="Root")
+	n = initial_graph.number_of_nodes()
 	
 	# create vehicle directed graph route
-	route = []
+	routes = []
 	for i in range(k):
-		route.append(nx.DiGraph())
-		route[i].add_node(0)
+		vehicle_name = "k" + str(i)
+		routes.append(Route(vehicle_name, initial_graph.nodes['0']['pos']))
 
 	# create event graph
 	events = nx.DiGraph()
-	events.add_node(0)
+	events.add_node('0')
 
-	# backtraking
-	# phase 1: assign first event to k0 using nearest neighbor heuristic
-	# loop:
-	# 	phase 2: assign routes to vehicles covering last event, using nearest neighbor heuristics,
-	# 			 checking feasibility at first arrival between pairs of vehicles
-	#	phase 3: find next node from last event trigger, 
-	#			 checking feasibility at first arrival between pairs of vehicles
-	# 	phase 3: compute next event; last event <- next event; phase 2
-	for i in range(n):
-		# phase 1
-		if i == 0:
-			candidates = list(range(1, n))
-			d = 1e9
-			e = 0
-			for c in candidates:
-				d_tmp = G[0][c]["weight"]
-				if d_tmp < d:
-					d = d_tmp
-					e = c
-			events.add_edge(0, e, weight=d)
-			# tree.add_edge(0, e, weight=d)
-			route[0].add_edge(0, e, weigth=d)
-		# loop
-		# else:
-		# 	# phase 2
-		# 	# compute last event and time of last event
-		# 	last_event = list(nx.topological_sort(events))[-1]
-		# 	last_event_time = events.size(weight="weight")
-		# 	feasible = 1
-		# 	# compute vehicle times
-		# 	time_v = [[]] * k
-		# 	for i in range(k):
-		# 		time_v[i] = route[i].size(weight="weight")
-		# 	# iterate over vehicles to get candidates for arc covering
-		# 	for v in range(k):
-		# 		last_node = list(nx.topological_sort(route[v]))[-1]
-		# 		candidates = [key for key in cover_LB.keys() if key[0] == last_event and 
-		# 		  key[1] == last_node]
-		# 		d = 1e9
-		# 		feasible_tmp = 0
-		# 		contender = None
-		# 		# iterate over candidates
-		# 		for c in candidates:
-		# 			d_tmp = G[c[1]][c[2]]["weight"]
-		# 			if d_tmp < d:
-		# 				d = d_tmp
-		# 				feasible_tmp =  1
-		# 				contender = c
-		# 		# check feasibility
-		# 		feasible = feasible and feasible_tmp
-		# 		if feasible_tmp:
-		# 			candidates.remove(contender)
-		# 			route[v].add_edge()
+	feasibility = True
 
-		# continue
+	candidates = list(initial_graph.nodes())
+	while(feasibility):
+		candidate = nearest_neighbor_candidate(initial_graph, routes, candidates, cover_LB, cover_UB, k)
+		if candidate == '0':
+			break
+		else:
+			# check feasibility
+			if is_feasible(route, candidate):
+				for i in range(k):
+					route[i].add_stop(candidate, G.nodes[candidate]['pos'])
+				events.add_node(candidate)
+				events.add_edge('0', candidate)
+				for i in range(k):
+					route[i].finish_route()
+			else:
+				feasibility = False
 
-	# raise NotImplementedError
+
+	raise NotImplementedError
 	return 0
 
 
@@ -234,10 +216,9 @@ def main():
 	## initialize instance and plot initial graph
 	n, k, r, positions = read_instance(instance)
 	initial_graph = generate_initial_graph(n, positions)
-	print(positions)
-	draw_graph(initial_graph, positions, True)
+	draw_graph(initial_graph, True)
 	cover_LB, cover_UB = read_pre_processing(cover_file)
-	generate_solution(initial_graph, positions, cover_LB, cover_UB, k)
+	generate_solution(initial_graph, cover_LB, cover_UB, k)
 	input("pressione para sair...")
 
 

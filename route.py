@@ -50,5 +50,11 @@ class Route:
         else:
             raise ValueError(f"Node {stop_id} not found in the graph.")
 
+    def finish_route(self):
+        last_city = list(nx.topological_sort(self.graph))[-1]
+        self.graph.add_edge(last_city, '0f', weight=compute_weight(self.graph.nodes[last_city]['pos'], self.graph.nodes['0']['pos']))
+        self.obj = self.graph.size('weight')
+        self.__update_route()
+
     def __update_route(self):
         self.trajectory = list(nx.topological_sort(self.graph))
